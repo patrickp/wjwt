@@ -1,0 +1,92 @@
+SUBROUTINE WJWT(ACTION,PARAMIN,PARAMOUT,OptionsObject,RERR)
+************************************
+* FUNCTION FOR MANAGING JAVASCRIPT WEB TOKENS
+************************************
+*
+DOINGRFILE=1
+OPEN "RESULT.FILE" TO RFILE ELSE DOINGRFILE=0
+CALL WJWT.WOBJECT("GET",OptionsObject,"key",JWTKEY,RERR)
+IF JWTKEY="" THEN
+   RERR=-1
+   RERR<2>="No key"
+   RETURN
+END
+*
+ACTION=OCONV(ACTION,"MCU")
+*
+BEGIN CASE
+   CASE ACTION="SIGN"
+      GOSUB signtoken
+   CASE ACTION="VERIFY"
+      GOSUB verifytoken
+END CASE
+RETURN
+STOP
+*
+signtoken: *
+*
+* We should have a payload record
+*
+Payload=PARAMIN
+IF Payload = "" THEN
+   * WE ARE OK, THIS IS A BLANK AND WE AN MAKE IT A OBJECT 
+   CALL WJWT.WOBJECT("CREATE",Payload,"","",RERR)
+END ELSE
+   CALL WJWT.WOBJECT("ISOBJECT",Payload,"",ISOBJECT,RERR)
+   IF NOT(ISOBJECT) THEN
+      RERR=-1
+      RERR<2>="Input parameter is not a object or blank"
+      RETURN
+   END
+END
+CALL WJWT.WOBJECT("GET",OptionsObject,"exp",Expiration,RERR)
+*
+* LETS GET OUR CREATE DATE
+*
+P=DATE()
+P<2>=TIME()
+CALL WJWT.WUTC("TO",P,UTC,RERR)
+IF NOT(UTC) THEN
+   RERR=-1
+   RERR<2>="Issue creating UTC date for iat"
+   RETURN
+END
+CALL WJWT.WOBJECT("ADD",Payload,"iat",UTC,RERR)
+*
+* Lets get how long this token is good For *
+*
+CALL WJWT.WOBJECT("GET",OptionsObject,"expires_in",Expires_In,RERR)
+IF Expires_In THEN
+   * This should be a numeric and be the number of seconds
+   Expiration=UTC+Expires_In
+   CALL WJWT.WOBJECT("ADD",Payload,"exp",Expiration,RERR)
+END
+CALL WJWT.WOBJECT("TOJSON",Payload,"",PayloadJson,RERR)
+*
+* lets build our header
+*
+CALL WJWT.WOBJECT("CREATE",JwtHeader,"","",RERR)
+CALL WJWT.WOBJECT("ADD",JwtHeader,"alg","HS256",RERR)
+CALL WJWT.WOBJECT("ADD",JwtHeader,"typ","JWT",RERR)
+CALL WJWT.WOBJECT("TOJSON",JwtHeader,"",JwtHeaderJson,RERR)
+*
+* now we need to create our token, this needs to be options later, for now we will code header
+*
+CALL WJWT.WENCRYPTION("TOBASE64",JwtHeaderJson,JwtHeaderJsonBase64,'',RERR)
+CALL WJWT.WENCRYPTION("TOBASE64",PayloadJson,PayloadBase64,'',RERR)
+JWT=JwtHeaderJsonBase64:".":PayloadBase64
+CALL WJWT.WENCRYPTION("TOH256",JWT,JWTSIGNED,'',RERR)
+PARAMOUT=JWT:".":JWTSIGNED
+*
+RETURN
+*
+verifytoken: *
+HEADER=FIELD(PARAMIN,".",1)
+PAYLOAD=FIELD(PARAMIN,".",2)
+SIGN=FIELD(PARAMIN,".",3)
+JWT=HEADER:".":PAYLOAD
+CALL WJWT.WENCRYPTION("TOH256",JWT,JWTSIGNED,"",RERR)
+IF SIGN = JWTSIGNED THEN PRINT "OK" ELSE PRINT "BAD"
+PARAMOUT=0
+IF SIGN = JWTSIGNED THEN PARAMOUT=1
+RETURN

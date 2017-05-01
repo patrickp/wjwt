@@ -1,0 +1,104 @@
+SUBROUTINE WJWT.WOBJECT(ACTION,OBJECT,FN,FV,RERR)
+******************
+* THIS FUNCTION WILL EMULATE OBJECTS
+******************
+*
+* OBJECT<1>="@OBJECT"
+* OBJECT<2-9> = Reserved
+* OBJECT<10,@VM> = FIELD NAME
+* OBJECT<11,@VM> = FIELD VALUE
+* OBJECT<12,@VM> = ENCODING
+* NEW LINE
+*
+*
+FN=OCONV(FN,"MCL")
+RERR=""
+IF NOT(ASSIGNED(OBJECT)) THEN OBJECT=""
+BEGIN CASE
+    CASE ACTION="ISOBJECT"
+        IF OBJECT<1>="@OBJECT" THEN
+           FV=1
+        END ELSE
+           FV=0
+        END
+    CASE ACTION="CREATE" AND OBJECT # ""
+        RERR=-1
+        RERR<2>="VARIABLE IS NOT BLANK"
+    CASE ACTION="CREATE"
+         OBJECT="@OBJECT"
+         OBJECT<2,1>=DATE()
+         OBJECT<2,2>=TIME()
+         OBJECT<2,3>=@USER.NO
+    CASE OBJECT<1> # "@OBJECT"
+         RERR=-1
+         RERR<2>="NOT A OBJECT"
+    CASE ACTION="UPDATE" OR ACTION="ADD"
+         GOSUB locatefield
+         IF NOT(OBJECT_POS) THEN
+             OBJECT<10,-1>=FN
+             OBJECT_POS=DCOUNT(OBJECT<10>,@VM)
+         END
+         IF INDEX(FV,@AM,1) OR INDEX(FV,@VM,1) OR INDEX(FV,CHAR(252),1) THEN
+            ENCODING="H"
+            FV=OCONV(FV,"MX")
+         END ELSE
+            ENCODING=""
+         END
+         OBJECT<11,OBJECT_POS> = FV
+         OBJECT<12,OBJECT_POS> = ENCODING
+    CASE ACTION="GET"
+         GOSUB locatefield
+         FV=""
+         IF OBJECT_POS THEN
+            FieldValue=OBJECT<11,OBJECT_POS>
+            FieldEncoding=OBJECT<12,OBJECT_POS>
+            GOSUB decodefield
+            FV=FieldValue
+         END ELSE
+            FV=""
+            RERR="-1"
+            RERR<2>="COULD NOT FIND FIELD"
+         END
+    CASE ACTION="DELETE"
+         FV=""
+         GOSUB locatefield
+         IF OBJECT_POS THEN
+         	FOR V=10 TO 13
+         		OBJECT=DELETE(OBJECT,V,OBJECT_POS)
+            NEXT V
+         END ELSE
+             RERR="-1"
+             RERR<2>="COULD NOT FIND FIELD"
+         END
+    CASE ACTION="TOJSON"
+         FieldNames=OBJECT<10>
+         FieldValues=OBJECT<11>
+         FieldEncodings=OBJECT<12>
+         NumFields=DCOUNT(FieldNames,@VM)
+         FV="{"
+         FOR V=1 TO NumFields
+             FieldName=FieldNames<1,V>
+             FieldValue=FieldValues<1,V>
+             FieldEncoding=FieldEncodings<1,V>
+             GOSUB decodefield
+             CALL WBUILDJSON(FV,FieldName,FieldValue,RERR)
+        NEXT V
+        FV:="}"
+    CASE 1
+       RERR="-1"
+       RERR<2>="Invalid action"
+END CASE
+RETURN
+STOP
+*
+locatefield: *
+LOCATE FN IN OBJECT<10> SETTING OBJECT_POS ELSE OBJECT_POS=0
+RETURN
+*
+decodefield: *
+*
+    BEGIN CASE
+        CASE FieldEncoding="H"
+            FieldValue=OCONV(FV,"MY")
+    END CASE
+RETURN
